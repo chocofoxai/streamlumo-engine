@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  streamlumo-engine-helper.entitlements
+  SPDX-License-Identifier: GPL-2.0-or-later
+  Copyright (C) 2024 StreamLumo / Intelli-SAAS
+  
+  Entitlements for CEF helper processes:
+  - streamlumo-engine Helper.app
+  - streamlumo-engine Helper (GPU).app
+  - streamlumo-engine Helper (Plugin).app
+  - streamlumo-engine Helper (Renderer).app
+  
+  These are subprocess apps spawned by CEF for multi-process architecture.
+-->
+<plist version="1.0">
+<dict>
+    <!-- Allow JIT compilation (required for V8 JavaScript engine) -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    
+    <!-- Allow unsigned executable memory (required for V8) -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    
+    <!-- Disable library validation (required for CEF framework) -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    
+    <!-- Inherit entitlements from parent process -->
+    <key>com.apple.security.inherit</key>
+    <true/>
+    
+    <!-- GPU access for hardware acceleration -->
+    <key>com.apple.security.device.graphics</key>
+    <true/>
+</dict>
+</plist>

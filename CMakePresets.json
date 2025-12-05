@@ -1,0 +1,232 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 22,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/dist/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_BROWSER": "ON",
+        "ENABLE_WEBSOCKET": "ON"
+      }
+    },
+    {
+      "name": "macos-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "11.0"
+      }
+    },
+    {
+      "name": "windows-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_SYSTEM_VERSION": "10.0"
+      }
+    },
+    {
+      "name": "linux-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_POSITION_INDEPENDENT_CODE": "ON"
+      }
+    },
+    {
+      "name": "macos-arm64",
+      "displayName": "macOS ARM64 (Apple Silicon)",
+      "description": "Build for Apple Silicon Macs (M1/M2/M3/M4)",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "OBS_SOURCE_DIR": "${sourceDir}/../obs-studio",
+        "OBS_BUILD_DIR": "${sourceDir}/../obs-studio/build_arm64",
+        "CEF_ROOT_DIR": "${sourceDir}/../deps/cef_binary_macos_arm64"
+      }
+    },
+    {
+      "name": "macos-x86_64",
+      "displayName": "macOS x86_64 (Intel)",
+      "description": "Build for Intel Macs",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "x86_64",
+        "OBS_SOURCE_DIR": "${sourceDir}/../obs-studio",
+        "OBS_BUILD_DIR": "${sourceDir}/../obs-studio/build_x64",
+        "CEF_ROOT_DIR": "${sourceDir}/../deps/cef_binary_macos_x86_64"
+      }
+    },
+    {
+      "name": "macos-universal",
+      "displayName": "macOS Universal (ARM64 + x86_64)",
+      "description": "Build universal binary for all Macs",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64",
+        "OBS_SOURCE_DIR": "${sourceDir}/../obs-studio",
+        "OBS_BUILD_DIR": "${sourceDir}/../obs-studio/build_universal"
+      }
+    },
+    {
+      "name": "macos-arm64-debug",
+      "displayName": "macOS ARM64 Debug",
+      "description": "Debug build for Apple Silicon",
+      "inherits": "macos-arm64",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "windows-x64",
+      "displayName": "Windows x64",
+      "description": "Build for 64-bit Windows",
+      "inherits": "windows-base",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "OBS_SOURCE_DIR": "${sourceDir}/../obs-studio",
+        "OBS_BUILD_DIR": "${sourceDir}/../obs-studio/build_x64",
+        "CEF_ROOT_DIR": "${sourceDir}/../deps/cef_binary_windows_x64"
+      }
+    },
+    {
+      "name": "windows-x64-debug",
+      "displayName": "Windows x64 Debug",
+      "description": "Debug build for 64-bit Windows",
+      "inherits": "windows-x64",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "windows-x64-msvc",
+      "displayName": "Windows x64 (Visual Studio)",
+      "description": "Build for Windows using Visual Studio generator",
+      "inherits": "windows-base",
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "cacheVariables": {
+        "OBS_SOURCE_DIR": "${sourceDir}/../obs-studio",
+        "OBS_BUILD_DIR": "${sourceDir}/../obs-studio/build_x64",
+        "CEF_ROOT_DIR": "${sourceDir}/../deps/cef_binary_windows_x64"
+      }
+    },
+    {
+      "name": "linux-x64",
+      "displayName": "Linux x64",
+      "description": "Build for 64-bit Linux",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "OBS_SOURCE_DIR": "${sourceDir}/../obs-studio",
+        "OBS_BUILD_DIR": "${sourceDir}/../obs-studio/build_x64",
+        "CEF_ROOT_DIR": "${sourceDir}/../deps/cef_binary_linux_x64"
+      }
+    },
+    {
+      "name": "linux-x64-debug",
+      "displayName": "Linux x64 Debug",
+      "description": "Debug build for 64-bit Linux",
+      "inherits": "linux-x64",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-arm64",
+      "displayName": "Linux ARM64",
+      "description": "Build for ARM64 Linux (Raspberry Pi 4, etc.)",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "OBS_SOURCE_DIR": "${sourceDir}/../obs-studio",
+        "OBS_BUILD_DIR": "${sourceDir}/../obs-studio/build_arm64",
+        "CEF_ROOT_DIR": "${sourceDir}/../deps/cef_binary_linux_arm64"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "macos-arm64",
+      "displayName": "Build macOS ARM64",
+      "configurePreset": "macos-arm64",
+      "configuration": "Release"
+    },
+    {
+      "name": "macos-x86_64",
+      "displayName": "Build macOS x86_64",
+      "configurePreset": "macos-x86_64",
+      "configuration": "Release"
+    },
+    {
+      "name": "macos-universal",
+      "displayName": "Build macOS Universal",
+      "configurePreset": "macos-universal",
+      "configuration": "Release"
+    },
+    {
+      "name": "macos-arm64-debug",
+      "displayName": "Build macOS ARM64 Debug",
+      "configurePreset": "macos-arm64-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-x64",
+      "displayName": "Build Windows x64",
+      "configurePreset": "windows-x64",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-x64-debug",
+      "displayName": "Build Windows x64 Debug",
+      "configurePreset": "windows-x64-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "linux-x64",
+      "displayName": "Build Linux x64",
+      "configurePreset": "linux-x64",
+      "configuration": "Release"
+    },
+    {
+      "name": "linux-x64-debug",
+      "displayName": "Build Linux x64 Debug",
+      "configurePreset": "linux-x64-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "linux-arm64",
+      "displayName": "Build Linux ARM64",
+      "configurePreset": "linux-arm64",
+      "configuration": "Release"
+    }
+  ]
+}

@@ -1,0 +1,204 @@
+diff --git a/plugins/obs-websocket/CMakeLists.txt b/plugins/obs-websocket/CMakeLists.txt
+index 1234567..abcdefg 100644
+--- a/plugins/obs-websocket/CMakeLists.txt
++++ b/plugins/obs-websocket/CMakeLists.txt
+@@ -6,6 +6,13 @@ set(OBS_WEBSOCKET_RPC_VERSION 1)
+ 
+ include(cmake/obs-websocket-api.cmake)
+ 
++# Headless mode option - skips Qt UI components
++option(OBS_WEBSOCKET_HEADLESS "Build obs-websocket for headless mode (no Qt UI)" OFF)
++
++if(OBS_WEBSOCKET_HEADLESS)
++  message(STATUS "[obs-websocket] Building in HEADLESS mode - Qt UI components disabled")
++endif()
++
+ option(ENABLE_WEBSOCKET "Enable building OBS with websocket plugin" ON)
+ if(NOT ENABLE_WEBSOCKET)
+   target_disable(obs-websocket)
+@@ -13,7 +20,11 @@ if(NOT ENABLE_WEBSOCKET)
+ endif()
+ 
+ # Find Qt
+-find_package(Qt6 REQUIRED Core Widgets Svg Network)
++if(OBS_WEBSOCKET_HEADLESS)
++  find_package(Qt6 REQUIRED Core Network)
++else()
++  find_package(Qt6 REQUIRED Core Widgets Svg Network)
++endif()
+ 
+ # Find nlohmann JSON
+ find_package(nlohmann_json 3.11 REQUIRED)
+@@ -32,15 +43,18 @@ find_package(Asio 1.12.1 REQUIRED)
+ add_library(obs-websocket MODULE)
+ add_library(OBS::websocket ALIAS obs-websocket)
+ 
+-target_sources(
+-  obs-websocket
+-  PRIVATE # cmake-format: sortable
+-          src/Config.cpp
+-          src/Config.h
+-          src/forms/ConnectInfo.cpp
+-          src/forms/ConnectInfo.h
+-          src/forms/resources.qrc
+-          src/forms/SettingsDialog.cpp
++set(OBS_WEBSOCKET_SOURCES
++    src/Config.cpp
++    src/Config.h
++    src/obs-websocket.cpp
++    src/obs-websocket.h
++    src/WebSocketApi.cpp
++    src/WebSocketApi.h)
++
++# UI sources - only include if not in headless mode
++if(NOT OBS_WEBSOCKET_HEADLESS)
++  list(APPEND OBS_WEBSOCKET_SOURCES
+           src/forms/SettingsDialog.h
+-          src/obs-websocket.cpp
+-          src/obs-websocket.h
+-          src/WebSocketApi.cpp
+-          src/WebSocketApi.h)
++          src/forms/SettingsDialog.cpp
++          src/forms/ConnectInfo.h
++          src/forms/ConnectInfo.cpp
++          src/forms/resources.qrc)
++endif()
++
++target_sources(obs-websocket PRIVATE ${OBS_WEBSOCKET_SOURCES})
+ 
+ target_sources(
+   obs-websocket
+@@ -128,15 +142,23 @@ target_sources(obs-websocket PRIVATE plugin-macros.generated.h)
+ 
+ target_compile_definitions(
+   obs-websocket PRIVATE ASIO_STANDALONE $<$<BOOL:${PLUGIN_TESTS}>:PLUGIN_TESTS>
++                        $<$<BOOL:${OBS_WEBSOCKET_HEADLESS}>:OBS_WEBSOCKET_HEADLESS>
+                         $<$<PLATFORM_ID:Windows>:_WEBSOCKETPP_CPP11_STL_> $<$<PLATFORM_ID:Windows>:_WIN32_WINNT=0x0603>)
+ 
+-target_link_libraries(
+-  obs-websocket
+-  PRIVATE OBS::libobs
++set(OBS_WEBSOCKET_LIBS
++    OBS::libobs
+           OBS::frontend-api
+           OBS::websocket-api
+           Qt::Core
+-          Qt::Widgets
+-          Qt::Svg
+           Qt::Network
+           nlohmann_json::nlohmann_json
+           Websocketpp::Websocketpp
+-          Asio::Asio
+-          qrcodegencpp::qrcodegencpp)
++          Asio::Asio)
++
++if(NOT OBS_WEBSOCKET_HEADLESS)
++  list(APPEND OBS_WEBSOCKET_LIBS
++       Qt::Widgets
++       Qt::Svg
++       qrcodegencpp::qrcodegencpp)
++endif()
++
++target_link_libraries(obs-websocket PRIVATE ${OBS_WEBSOCKET_LIBS})
+ 
+diff --git a/plugins/obs-websocket/src/obs-websocket.cpp b/plugins/obs-websocket/src/obs-websocket.cpp
+index 1234567..abcdefg 100644
+--- a/plugins/obs-websocket/src/obs-websocket.cpp
++++ b/plugins/obs-websocket/src/obs-websocket.cpp
+@@ -17,16 +17,22 @@ with this program. If not, see <https://www.gnu.org/licenses/>
+ */
+ 
++#ifndef OBS_WEBSOCKET_HEADLESS
+ #include <QAction>
+ #include <QMainWindow>
++#endif
++
+ #include <obs-module.h>
+ #include <obs-frontend-api.h>
+ 
+ #include "obs-websocket.h"
+ #include "Config.h"
+ #include "WebSocketApi.h"
+ #include "websocketserver/WebSocketServer.h"
+ #include "eventhandler/EventHandler.h"
++
++#ifndef OBS_WEBSOCKET_HEADLESS
+ #include "forms/SettingsDialog.h"
++#endif
+ 
+ OBS_DECLARE_MODULE()
+ OBS_MODULE_USE_DEFAULT_LOCALE("obs-websocket", "en-US")
+@@ -46,7 +52,9 @@ os_cpu_usage_info_t *_cpuUsageInfo;
+ ConfigPtr _config;
+ EventHandlerPtr _eventHandler;
+ WebSocketApiPtr _webSocketApi;
+ WebSocketServerPtr _webSocketServer;
++#ifndef OBS_WEBSOCKET_HEADLESS
+ SettingsDialog *_settingsDialog = nullptr;
++#endif
+ 
+ void OnWebSocketApiVendorEvent(std::string vendorName, std::string eventType, obs_data_t *obsEventData);
+ void OnEvent(uint64_t requiredIntent, std::string eventType, json eventData, uint8_t rpcVersion);
+@@ -55,8 +63,13 @@ void OnObsReady(bool ready);
+ bool obs_module_load(void)
+ {
+ 	blog(LOG_INFO, "[obs_module_load] you can haz websockets (Version: %s | RPC Version: %d)", OBS_WEBSOCKET_VERSION,
+ 	     OBS_WEBSOCKET_RPC_VERSION);
++
++#ifdef OBS_WEBSOCKET_HEADLESS
++	blog(LOG_INFO, "[obs_module_load] Running in HEADLESS mode - UI components disabled");
++#else
+ 	blog(LOG_INFO, "[obs_module_load] Qt version (compile-time): %s | Qt version (run-time): %s", QT_VERSION_STR, qVersion());
++#endif
+ 	blog(LOG_INFO, "[obs_module_load] Linked ASIO Version: %d", ASIO_VERSION);
+ 
+ 	// Initialize the cpu stats
+@@ -87,16 +100,21 @@ bool obs_module_load(void)
+ 	_webSocketServer->SetClientSubscriptionCallback(std::bind(&EventHandler::ProcessSubscriptionChange, _eventHandler.get(),
+ 								  std::placeholders::_1, std::placeholders::_2));
+ 
++#ifndef OBS_WEBSOCKET_HEADLESS
+ 	// Initialize the settings dialog
+ 	obs_frontend_push_ui_translation(obs_module_get_string);
+ 	QMainWindow *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());
+ 	_settingsDialog = new SettingsDialog(mainWindow);
+ 	obs_frontend_pop_ui_translation();
+ 
+ 	// Add the settings dialog to the tools menu
+ 	const char *menuActionText = obs_module_text("OBSWebSocket.Settings.DialogTitle");
+ 	QAction *menuAction = (QAction *)obs_frontend_add_tools_menu_qaction(menuActionText);
+ 	QObject::connect(menuAction, &QAction::triggered, [] { _settingsDialog->ToggleShowHide(); });
++#else
++	blog(LOG_INFO, "[obs_module_load] Headless mode: Skipping UI initialization");
++#endif
+ 
+ 	blog(LOG_INFO, "[obs_module_load] Module loaded.");
+ 	return true;
+@@ -113,6 +131,12 @@ void obs_module_post_load(void)
+ 	test_register_vendor();
+ #endif
+ 
++#ifdef OBS_WEBSOCKET_HEADLESS
++	// In headless mode, always start the server (config is still respected for port/auth)
++	blog(LOG_INFO, "[obs_module_post_load] Headless mode: Auto-starting WebSocket server...");
++	_webSocketServer->Start();
++	blog(LOG_INFO, "[obs_module_post_load] WebSocket server started on port %d", _config->ServerPort);
++#else
+ 	// Server will accept clients, but requests and events will not be served until FINISHED_LOADING occurs
+ 	if (_config->ServerEnabled) {
+ 		blog(LOG_INFO, "[obs_module_post_load] WebSocket server is enabled, starting...");
+ 		_webSocketServer->Start();
+ 	}
++#endif
+ }
+ 
+ void obs_module_unload(void)
+@@ -131,8 +155,10 @@ void obs_module_unload(void)
+ 	_webSocketServer = nullptr;
+ 
+ 	// Release the plugin/script api
++#ifndef OBS_WEBSOCKET_HEADLESS
++	delete _settingsDialog;
++	_settingsDialog = nullptr;
++#endif
+ 
