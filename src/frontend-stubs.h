@@ -1,6 +1,6 @@
 // streamlumo-engine/src/frontend-stubs.h
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Copyright (C) 2024 StreamLumo / Intelli-SAAS
+// Copyright (C) 2024 StreamLumo
 //
 // Headless frontend API stubs for obs-websocket plugin support
 

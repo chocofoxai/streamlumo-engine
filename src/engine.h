@@ -1,6 +1,6 @@
 // streamlumo-engine/src/engine.h
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Copyright (C) 2024 StreamLumo / Intelli-SAAS
+// Copyright (C) 2024 StreamLumo
 
 #pragma once
 

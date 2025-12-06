@@ -1,7 +1,7 @@
 #!/bin/bash
 # streamlumo-engine/scripts/download-deps.sh
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright (C) 2024 StreamLumo / Intelli-SAAS
+# Copyright (C) 2024 StreamLumo
 #
 # Downloads all required dependencies for building streamlumo-engine
 

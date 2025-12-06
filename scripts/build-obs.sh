@@ -1,7 +1,7 @@
 #!/bin/bash
 # streamlumo-engine/scripts/build-obs.sh
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright (C) 2024 StreamLumo / Intelli-SAAS
+# Copyright (C) 2024 StreamLumo
 #
 # Builds OBS Studio in headless mode (no UI) for use with streamlumo-engine
 

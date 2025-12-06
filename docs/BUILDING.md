@@ -463,4 +463,4 @@ jobs:
 
 StreamLumo Engine is licensed under GPL-2.0-or-later, same as OBS Studio.
 
-Copyright (C) 2024 StreamLumo / Intelli-SAAS
+Copyright (C) 2024 StreamLumo

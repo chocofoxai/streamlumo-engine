@@ -1,6 +1,6 @@
 // streamlumo-engine/src/main.cpp
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Copyright (C) 2024 StreamLumo / Intelli-SAAS
+// Copyright (C) 2024 StreamLumo
 //
 // This file is part of streamlumo-engine, a headless OBS server for StreamLumo.
 // streamlumo-engine is free software: you can redistribute it and/or modify

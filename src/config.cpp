@@ -1,6 +1,6 @@
 // streamlumo-engine/src/config.cpp
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Copyright (C) 2024 StreamLumo / Intelli-SAAS
+// Copyright (C) 2024 StreamLumo
 
 #include "config.h"
 
@@ -150,7 +150,7 @@ void Config::printHelp() const {
     std::cout << "  streamlumo-engine --port 4466 --resolution 1920x1080 --fps 30\n";
     std::cout << "  streamlumo-engine -p 4455 -r 1280x720 -f 60 --log-level debug\n\n";
     
-    std::cout << "For more information, visit: https://github.com/Intelli-SAAS/streamlumo-engine\n";
+    std::cout << "For more information, visit: https://github.com/chocofoxai/streamlumo-engine\n";
 }
 
 void Config::printVersion() const {
