@@ -6,10 +6,13 @@
 
 #include "config.h"
 #include <atomic>
+#include <memory>
 
 // Forward declarations for OBS types
 struct obs_video_info;
 struct obs_audio_info;
+#include "browser_helper_launcher.h"
+#include "browser_helper_client.h"
 
 namespace streamlumo {
 
@@ -66,6 +69,7 @@ private:
     bool initAudio();
     bool loadModules();
     bool setupDefaultScene();
+    bool setupDefaultTransition();
     
     // Path helpers
     std::string getPluginPath() const;
@@ -78,6 +82,19 @@ private:
     // State
     bool m_initialized = false;
     std::atomic<bool> m_shutdownRequested{false};
+    
+    // Test mode browser source
+    void* m_testBrowserSource = nullptr;  // obs_source_t*
+    bool createTestBrowserSource(const std::string& url);
+
+#ifdef STREAMLUMO_ENABLE_BROWSER_HELPER
+    BrowserHelperLauncher m_browserHelper;
+    std::unique_ptr<BrowserHelperClient> m_browserHelperClient;
+    int m_helperPort = 4777;
+    std::string m_helperToken;
+    std::chrono::steady_clock::time_point m_lastHelperPing;
+    std::string m_helperBundlePath;
+#endif
 };
 
 } // namespace streamlumo

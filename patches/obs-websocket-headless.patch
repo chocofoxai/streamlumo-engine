@@ -202,3 +202,84 @@ index 1234567..abcdefg 100644
 +	_settingsDialog = nullptr;
 +#endif
  
+
+diff --git a/plugins/obs-websocket/src/Config.cpp b/plugins/obs-websocket/src/Config.cpp
+index 1234567..abcdefg 100644
+--- a/plugins/obs-websocket/src/Config.cpp
++++ b/plugins/obs-websocket/src/Config.cpp
+@@ -17,6 +17,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
+ */
+ 
+ #include <filesystem>
++#include <cstdlib>
+ 
+ #include "Config.h"
+ #include "obs-websocket.h"
+@@ -48,6 +49,14 @@ with this program. If not, see <https://www.gnu.org/licenses/>
+ #define CMDLINE_WEBSOCKET_PASSWORD "websocket_password"
+ #define CMDLINE_WEBSOCKET_DEBUG "websocket_debug"
+ 
++// Environment variable overrides for headless mode
++// Since QCoreApplication isn't available in headless mode, we use env vars
++#define ENV_WEBSOCKET_PORT "SL_WEBSOCKET_PORT"
++#define ENV_WEBSOCKET_PASSWORD "SL_WEBSOCKET_PASSWORD"
++#define ENV_WEBSOCKET_IPV4_ONLY "SL_WEBSOCKET_IPV4_ONLY"
++#define ENV_WEBSOCKET_DEBUG "SL_WEBSOCKET_DEBUG"
++#define ENV_WEBSOCKET_AUTH_DISABLED "SL_WEBSOCKET_AUTH_DISABLED"
++
+ void Config::Load(json config)
+ {
+ 	// Only load from plugin config directory if there hasn't been a migration
+@@ -96,6 +105,43 @@ void Config::Load(json config)
+ 	if (!config.empty())
+ 		Save();
+ 
++#ifdef OBS_WEBSOCKET_HEADLESS
++	// In headless mode, read overrides from environment variables
++	// since QCoreApplication isn't available for command-line parsing
++	
++	// Process SL_WEBSOCKET_PORT override
++	const char* portEnv = std::getenv(ENV_WEBSOCKET_PORT);
++	if (portEnv && portEnv[0] != '\0') {
++		int port = std::atoi(portEnv);
++		if (port > 0 && port < 65536) {
++			blog(LOG_INFO, "[Config::Load] (Headless) SL_WEBSOCKET_PORT set. Using port: %d", port);
++			PortOverridden = true;
++			ServerPort = static_cast<uint16_t>(port);
++		}
++	}
++	
++	// Process SL_WEBSOCKET_PASSWORD override
++	const char* passwordEnv = std::getenv(ENV_WEBSOCKET_PASSWORD);
++	if (passwordEnv && passwordEnv[0] != '\0') {
++		blog(LOG_INFO, "[Config::Load] (Headless) SL_WEBSOCKET_PASSWORD set. Enabling authentication.");
++		PasswordOverridden = true;
++		AuthRequired = true;
++		ServerPassword = std::string(passwordEnv);
++	}
++	
++	// Process SL_WEBSOCKET_IPV4_ONLY override
++	const char* ipv4OnlyEnv = std::getenv(ENV_WEBSOCKET_IPV4_ONLY);
++	if (ipv4OnlyEnv && (std::string(ipv4OnlyEnv) == "1" || std::string(ipv4OnlyEnv) == "true")) {
++		blog(LOG_INFO, "[Config::Load] (Headless) SL_WEBSOCKET_IPV4_ONLY set. Binding only to IPv4.");
++		Ipv4Only = true;
++	}
++	
++	// Process SL_WEBSOCKET_DEBUG override
++	const char* debugEnv = std::getenv(ENV_WEBSOCKET_DEBUG);
++	if (debugEnv && (std::string(debugEnv) == "1" || std::string(debugEnv) == "true")) {
++		blog(LOG_INFO, "[Config::Load] (Headless) SL_WEBSOCKET_DEBUG set. Enabling debug logging.");
++		DebugEnabled = true;
++	}
++#else
+ 	// Process `--websocket_port` override
+ 	QString portArgument = Utils::Platform::GetCommandLineArgument(CMDLINE_WEBSOCKET_PORT);
+ 	if (portArgument != "") {
+@@ -127,6 +173,7 @@ void Config::Load(json config)
+ 		blog(LOG_INFO, "[Config::Load] --websocket_debug passed. Enabling debug logging.");
+ 		DebugEnabled = true;
+ 	}
++#endif
+ }
+ 
+ void Config::Save()

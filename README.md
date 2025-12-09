@@ -78,6 +78,9 @@ cmake --build --preset macos-arm64
 cd ../streamlumo-engine
 cmake --preset macos-arm64
 cmake --build --preset macos-arm64
+
+# Set up development environment (symlinks for dependencies)
+./scripts/setup-dev-env.sh macos-arm64
 ```
 
 ### Available Presets
@@ -89,12 +92,26 @@ cmake --build --preset macos-arm64
 - `linux-x64` - 64-bit Linux
 - `linux-arm64` - ARM64 Linux
 
-## Usage
+### Development Environment
 
-Run the engine from the command line:
+After building, run the setup script to create necessary symlinks:
 
 ```bash
-./dist/macos-arm64/MacOS/streamlumo-engine --port 4455 --resolution 1920x1080
+./scripts/setup-dev-env.sh macos-arm64
+```
+
+This creates:
+- `build/Frameworks/` - Symlinks to FFmpeg, Qt6, and OBS libraries
+- `build/PlugIns/` - Symlinks to OBS plugins (obs-websocket)
+- `build/Resources/` - Symlinks to plugin data files
+
+## Usage
+
+Run the engine from the build directory:
+
+```bash
+cd build/macos-arm64
+./streamlumo-engine --port 4455 --resolution 1920x1080 --fps 30
 ```
 
 ### Command Line Options
@@ -107,6 +124,23 @@ Run the engine from the command line:
 | `-f, --fps <FPS>` | Output framerate | 30 |
 | `-l, --log-level <LEVEL>` | Log level (debug, info, warn, error) | info |
 | `-q, --quiet` | Suppress banner output | false |
+
+### Verifying the Server
+
+To verify the WebSocket server is running:
+
+```bash
+# Check if port is open
+nc -zv 127.0.0.1 4455
+
+# Test WebSocket handshake
+curl -i -N \
+  -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Version: 13" \
+  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+  http://127.0.0.1:4455
+```
 
 ## License
 

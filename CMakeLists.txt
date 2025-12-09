@@ -21,6 +21,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(ENABLE_BROWSER "Enable browser source support (CEF)" ON)
 option(ENABLE_WEBSOCKET "Enable WebSocket server (obs-websocket)" ON)
+option(ENABLE_BROWSER_HELPER "Build standalone macOS CEF helper app (experimental)" OFF)
 
 # =============================================================================
 # Find OBS Libraries
@@ -120,6 +121,10 @@ add_executable(streamlumo-engine
     src/main.cpp
     src/engine.cpp
     src/engine.h
+    src/browser_helper_launcher.cpp
+    src/browser_helper_launcher.h
+    src/browser_helper_client.cpp
+    src/browser_helper_client.h
     src/config.cpp
     src/config.h
     src/logging.cpp
@@ -140,6 +145,10 @@ target_include_directories(streamlumo-engine PRIVATE
 target_link_libraries(streamlumo-engine PRIVATE
     ${LIBOBS_LIBRARY}
 )
+
+if(ENABLE_BROWSER_HELPER AND APPLE)
+    target_compile_definitions(streamlumo-engine PRIVATE STREAMLUMO_ENABLE_BROWSER_HELPER=1)
+endif()
 
 # Link obs-frontend-api for headless frontend stubs
 if(OBS_FRONTEND_API_LIBRARY)
@@ -260,6 +269,37 @@ endif()
 # Installation (Cross-Platform)
 # =============================================================================
 
+# OBS Plugins build directory (Release configuration)
+if(NOT DEFINED OBS_PLUGINS_DIR)
+    set(OBS_PLUGINS_DIR "${OBS_BUILD_DIR}/../build_macos/plugins" CACHE PATH "Path to built OBS plugins")
+endif()
+
+message(STATUS "OBS Plugins Dir: ${OBS_PLUGINS_DIR}")
+
+# List of required OBS plugins for full source type support
+# These are built from OBS source and provide all input/output capabilities
+set(REQUIRED_OBS_PLUGINS
+    # Source plugins (input types)
+    image-source          # Image, slideshow, color sources
+    mac-capture           # Screen/window/display capture on macOS  
+    mac-avcapture         # Camera/video capture on macOS
+    obs-ffmpeg            # FFmpeg-based media sources and outputs
+    text-freetype2        # Text rendering with FreeType
+    
+    # Filter plugins
+    obs-filters           # Video/audio filters (chroma key, color correction, etc.)
+    
+    # Output plugins
+    obs-outputs           # Streaming/recording outputs
+    obs-x264              # H.264 software encoder
+    mac-videotoolbox      # Hardware H.264/HEVC encoding on macOS
+    coreaudio-encoder     # AAC audio encoding on macOS
+    rtmp-services         # RTMP streaming services configuration
+    
+    # Transition plugins  
+    obs-transitions       # Scene transitions (fade, swipe, etc.)
+)
+
 if(APPLE)
     # macOS: Install to bundle structure
     install(TARGETS streamlumo-engine
@@ -273,6 +313,55 @@ if(APPLE)
         entitlements/streamlumo-engine-helper.entitlements
         DESTINATION "${CMAKE_INSTALL_PREFIX}/entitlements"
     )
+    
+    # Install OBS Plugins
+    message(STATUS "Installing OBS plugins from: ${OBS_PLUGINS_DIR}")
+    foreach(PLUGIN_NAME ${REQUIRED_OBS_PLUGINS})
+        set(PLUGIN_PATH "${OBS_PLUGINS_DIR}/${PLUGIN_NAME}/Release/${PLUGIN_NAME}.plugin")
+        if(EXISTS "${PLUGIN_PATH}")
+            message(STATUS "  → ${PLUGIN_NAME}")
+            install(DIRECTORY "${PLUGIN_PATH}"
+                DESTINATION "${CMAKE_INSTALL_PREFIX}/PlugIns/obs-plugins"
+                USE_SOURCE_PERMISSIONS
+            )
+        else()
+            message(WARNING "  ⚠ Plugin not found: ${PLUGIN_NAME} (expected at ${PLUGIN_PATH})")
+        endif()
+    endforeach()
+    
+    # Also install our headless obs-websocket plugin
+    # This is built separately with OBS_WEBSOCKET_HEADLESS=ON
+    set(WEBSOCKET_PLUGIN_PATH "${OBS_PLUGINS_DIR}/obs-websocket/Release/obs-websocket.plugin")
+    if(EXISTS "${WEBSOCKET_PLUGIN_PATH}")
+        message(STATUS "  → obs-websocket (headless)")
+        install(DIRECTORY "${WEBSOCKET_PLUGIN_PATH}"
+            DESTINATION "${CMAKE_INSTALL_PREFIX}/PlugIns/obs-plugins"
+            USE_SOURCE_PERMISSIONS
+        )
+    else()
+        message(WARNING "  ⚠ obs-websocket plugin not found at ${WEBSOCKET_PLUGIN_PATH}")
+    endif()
+    
+    # Install libobs framework
+    set(LIBOBS_FRAMEWORK "${OBS_BUILD_DIR}/../build_macos/libobs/Release/libobs.framework")
+    if(EXISTS "${LIBOBS_FRAMEWORK}")
+        message(STATUS "Installing libobs framework")
+        install(DIRECTORY "${LIBOBS_FRAMEWORK}"
+            DESTINATION "${CMAKE_INSTALL_PREFIX}/Frameworks"
+            USE_SOURCE_PERMISSIONS
+        )
+    endif()
+    
+    # Install obs-frontend-api framework (if available)
+    set(FRONTEND_FRAMEWORK "${OBS_BUILD_DIR}/../build_macos/frontend/api/Release/obs-frontend-api.framework")
+    if(EXISTS "${FRONTEND_FRAMEWORK}")
+        message(STATUS "Installing obs-frontend-api framework")
+        install(DIRECTORY "${FRONTEND_FRAMEWORK}"
+            DESTINATION "${CMAKE_INSTALL_PREFIX}/Frameworks"
+            USE_SOURCE_PERMISSIONS
+        )
+    endif()
+    
 elseif(WIN32)
     # Windows: Standard installation
     install(TARGETS streamlumo-engine
@@ -311,6 +400,33 @@ if(ENABLE_BROWSER AND APPLE)
 endif()
 
 # =============================================================================
+# Standalone CEF Helper app (experimental)
+# =============================================================================
+
+if(ENABLE_BROWSER_HELPER AND APPLE)
+    add_subdirectory(browser-helper)
+    add_dependencies(streamlumo-engine streamlumo-browser-helper)
+    # Copy helper bundle next to the engine binary (../Helpers/) so the launcher can find it.
+    add_custom_command(TARGET streamlumo-engine POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:streamlumo-engine>/../Helpers"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "$<TARGET_FILE_DIR:streamlumo-browser-helper>/../.." "$<TARGET_FILE_DIR:streamlumo-engine>/../Helpers/streamlumo-browser-helper.app"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:streamlumo-engine>/Helpers"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "$<TARGET_FILE_DIR:streamlumo-browser-helper>/../.." "$<TARGET_FILE_DIR:streamlumo-engine>/Helpers/streamlumo-browser-helper.app"
+        COMMENT "Copying browser helper bundle next to engine"
+    )
+    
+    # Build browser bridge plugin when helper is enabled
+    add_subdirectory(plugins/obs-browser-bridge)
+    add_dependencies(streamlumo-engine obs-browser-bridge)
+    
+    # Copy plugin next to engine
+    add_custom_command(TARGET streamlumo-engine POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:obs-browser-bridge>" "$<TARGET_FILE_DIR:streamlumo-engine>/../PlugIns/$<TARGET_FILE_NAME:obs-browser-bridge>"
+        COMMENT "Copying obs-browser-bridge plugin"
+    )
+endif()
+
+# =============================================================================
 # Summary
 # =============================================================================
 
@@ -319,6 +435,7 @@ message(STATUS "=== StreamLumo Engine Configuration ===")
 message(STATUS "Version: ${PROJECT_VERSION}")
 message(STATUS "Browser Sources: ${ENABLE_BROWSER}")
 message(STATUS "WebSocket Server: ${ENABLE_WEBSOCKET}")
+message(STATUS "Browser Helper (macOS): ${ENABLE_BROWSER_HELPER}")
 message(STATUS "Install Prefix: ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "========================================")
 message(STATUS "")

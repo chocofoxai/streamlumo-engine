@@ -111,6 +111,28 @@ bool Config::parseArgs(int argc, char* argv[]) {
             m_logFile = argv[++i];
             continue;
         }
+
+        // Helper port
+        if (arg == "--helper-port" && i + 1 < argc) {
+            m_helperPort = std::atoi(argv[++i]);
+            if (m_helperPort <= 0 || m_helperPort > 65535) {
+                std::cerr << "Error: Invalid helper port number" << std::endl;
+                return false;
+            }
+            continue;
+        }
+
+        // Helper token
+        if (arg == "--helper-token" && i + 1 < argc) {
+            m_helperToken = argv[++i];
+            continue;
+        }
+        
+        // Test browser URL - creates a browser source on startup
+        if (arg == "--test-browser-url" && i + 1 < argc) {
+            m_testBrowserUrl = argv[++i];
+            continue;
+        }
         
         // Unknown argument
         std::cerr << "Error: Unknown argument: " << arg << std::endl;
@@ -145,6 +167,9 @@ void Config::printHelp() const {
     
     std::cout << "  -l, --log-level <LEVEL>       Log level: debug, info, warn, error\n";
     std::cout << "      --log-file <PATH>         Log to file instead of stdout\n\n";
+
+    std::cout << "      --helper-port <PORT>       Browser helper TCP port (default: 4777)\n";
+    std::cout << "      --helper-token <TOKEN>     Shared secret for helper handshake (recommended)\n\n";
     
     std::cout << "EXAMPLES:\n";
     std::cout << "  streamlumo-engine --port 4466 --resolution 1920x1080 --fps 30\n";

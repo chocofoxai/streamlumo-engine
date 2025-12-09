@@ -52,6 +52,10 @@ public:
     LogLevel getLogLevel() const { return m_logLevel; }
     const std::string& getLogFile() const { return m_logFile; }
     bool isQuiet() const { return m_quiet; }
+
+    // Browser helper IPC
+    int getHelperPort() const { return m_helperPort; }
+    const std::string& getHelperToken() const { return m_helperToken; }
     
 private:
     void printHelp() const;
@@ -75,6 +79,18 @@ private:
     LogLevel m_logLevel = LogLevel::Info;
     std::string m_logFile;
     bool m_quiet = false;
+
+    // Browser helper IPC
+    int m_helperPort = 4777;
+    std::string m_helperToken;
+    
+    // Test mode
+    std::string m_testBrowserUrl;
+    
+public:
+    // Test mode accessors
+    const std::string& getTestBrowserUrl() const { return m_testBrowserUrl; }
+    bool hasTestBrowserUrl() const { return !m_testBrowserUrl.empty(); }
 };
 
 } // namespace streamlumo

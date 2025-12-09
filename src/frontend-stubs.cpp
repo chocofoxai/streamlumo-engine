@@ -58,9 +58,9 @@ HeadlessFrontend* HeadlessFrontend::instance() {
 }
 
 void HeadlessFrontend::signalFinishedLoading() {
-    log_info("Signaling OBS finished loading event...");
+    log_info("Signaling OBS finished loading event... (%zu registered callbacks)", m_eventCallbacks.size());
     on_event(OBS_FRONTEND_EVENT_FINISHED_LOADING);
-    log_info("OBS ready for requests");
+    log_info("OBS ready for requests (event dispatched to %zu callbacks)", m_eventCallbacks.size());
 }
 
 // GUI-related - return nullptr (no GUI)
@@ -250,6 +250,7 @@ bool HeadlessFrontend::obs_frontend_add_custom_qdock(const char* id, void* dock)
 void HeadlessFrontend::obs_frontend_add_event_callback(obs_frontend_event_cb callback, void* private_data) {
     EventCallback cb = {callback, private_data};
     m_eventCallbacks.push_back(cb);
+    log_info("Frontend event callback registered (now %zu callbacks)", m_eventCallbacks.size());
 }
 
 void HeadlessFrontend::obs_frontend_remove_event_callback(obs_frontend_event_cb callback, void* private_data) {

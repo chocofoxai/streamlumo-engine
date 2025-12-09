@@ -1,0 +1,305 @@
+diff --git a/plugins/obs-browser/cmake/os-macos.cmake b/plugins/obs-browser/cmake/os-macos.cmake
+index 1234567..abcdefg 100644
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+For Intel Mac support, the same approach works but you'll need the x86_64 CEF binary.- macOS ARM64 (Apple Silicon)- CEF 120+ (Chromium 120+)- OBS Studio 30.0.0 - 31.xThis patch is compatible with:## Version Compatibility- Browser source: `obs-studio/plugins/obs-browser/obs-browser-source.cpp`- Browser plugin source: `obs-studio/plugins/obs-browser/obs-browser-plugin.cpp`- Original cmake: `obs-studio/plugins/obs-browser/cmake/os-macos.cmake`- Patch file: `streamlumo-engine/patches/obs-browser-headless.patch`## Related Files```}    BrowserShutdown();    CefRunMessageLoop();  // Blocks until shutdown    BrowserInit();static void BrowserManagerThread(void) {manager_thread = thread(BrowserManagerThread);// obs_browser_initialize() spawns dedicated thread:// settings.multi_threaded_message_loop = true; (implicit on some platforms)// settings.external_message_pump = false; (implicit)// BrowserInit() uses defaults:```cpp**Headless Mode (obs-browser-plugin.cpp):**```BrowserInit();  // No separate thread needed// obs_browser_initialize() runs on main thread:settings.multi_threaded_message_loop = false;settings.external_message_pump = true;// BrowserInit() sets:```cpp**GUI Mode (obs-browser-plugin.cpp):**### Code Flow Differences```                          (Self-contained)     └────────────────────────────┴──────────────────────────┘     │                            ▲                          │CEF Manager Thread ──────► CefRunMessageLoop() ──────► CEF Tasks Execute```**Without ENABLE_BROWSER_QT_LOOP (Headless mode):**```     └──────────────────────────────────────────────────────┘     ▲                                                      │Qt Event Loop ──────► CefDoMessageLoopWork() ──────► CEF Tasks Execute```**With ENABLE_BROWSER_QT_LOOP (GUI mode):**### How CEF Message Loop Works## Technical Details- `OBS Helper (Renderer).app`- `OBS Helper (Plugin).app`- `OBS Helper (GPU).app`- `OBS Helper.app`**Solution:** Ensure all CEF helper variants exist:**Symptom:** Engine crashes when creating browser source### Issue: Crash on Source Creation```ls -la "dist/macos-arm64/Frameworks/Chromium Embedded Framework.framework"# Check if CEF framework exists```bash**Solution:** Check that the CEF framework is properly loaded:**Symptom:** Source is created but renders black### Issue: Browser Source Shows Black```codesign -dvvv "dist/macos-arm64/Frameworks/OBS Helper.app"```bash**Solution:** Ensure CEF helper apps are properly signed and have correct entitlements:**Symptom:** `[obs-browser]: CEF failed to initialize`### Issue: CEF Initialization Fails## Troubleshooting3. The source should be created without timeout (previously would hang for 30s+)   ```   });     height: 1080     width: 1920,     url: 'https://example.com',   await obs.inputs.createInput('Scene', 'TestBrowser', 'browser_source', {   // Using obs-websocket client   ```javascript2. Connect via WebSocket and create a browser source:   ```   ./dist/macos-arm64/streamlumo-engine.app/Contents/MacOS/streamlumo-engine   ```bash1. Start the StreamLumo Engine:After rebuilding, verify the plugin works:## Verification```#              AUTORCC ON)#              AUTOUIC ON#   PROPERTIES AUTOMOC ON#   obs-browser# set_target_properties(# REMOVE THESE LINES (they require Qt):```cmakeAlso remove the AUTOMOC/AUTOUIC/AUTORCC properties at the end of the file (lines 56-60):```                                          "$<LINK_LIBRARY:FRAMEWORK,AppKit.framework>")target_link_libraries(obs-browser PRIVATE CEF::Wrapper "$<LINK_LIBRARY:FRAMEWORK,CoreFoundation.framework>"# Remove Qt::Widgets from link librariesendif()  target_compile_options(obs-browser PRIVATE -Wno-error=unqualified-std-cast-call)if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 14.0.3)# Note: ENABLE_BROWSER_QT_LOOP is intentionally NOT definedtarget_compile_definitions(obs-browser PRIVATE ENABLE_BROWSER_SHARED_TEXTURE)# CEF will run its own message loop in a separate thread# HEADLESS MODE: Remove Qt dependency and ENABLE_BROWSER_QT_LOOP```cmake### Modified for Headless:```                                          "$<LINK_LIBRARY:FRAMEWORK,AppKit.framework>")target_link_libraries(obs-browser PRIVATE Qt::Widgets CEF::Wrapper "$<LINK_LIBRARY:FRAMEWORK,CoreFoundation.framework>"endif()  target_compile_options(obs-browser PRIVATE -Wno-error=unqualified-std-cast-call)if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 14.0.3)target_compile_definitions(obs-browser PRIVATE ENABLE_BROWSER_SHARED_TEXTURE ENABLE_BROWSER_QT_LOOP)find_package(Qt6 REQUIRED Widgets)```cmake### Original (lines 1-10):If you prefer not to use the patch, manually edit `obs-studio/plugins/obs-browser/cmake/os-macos.cmake`:## Alternative: Manual CMake Modification```./scripts/sign.sh dist/macos-arm64/streamlumo-engine.app# Run the signing scriptcd ../../streamlumo-engine```bash### Step 5: Sign the Plugin (for Distribution)```  ../../streamlumo-engine/dist/macos-arm64/Frameworks/cp -R plugins/obs-browser/OBS\ Helper*.app \# Copy CEF helper apps  ../../streamlumo-engine/dist/macos-arm64/PlugIns/obs-plugins/cp -R plugins/obs-browser/obs-browser.plugin \# Copy the built plugin bundle```bash### Step 4: Copy Built Plugin to Engine```ninja obs-browser browser-helper browser-helper_gpu browser-helper_plugin browser-helper_renderer# Build only obs-browser and its helpers```bash### Step 3: Build obs-browser Plugin```  -DBUILD_PLUGINS="obs-browser"  -DENABLE_PLUGINS=ON \  -DENABLE_SCRIPTING=OFF \  -DENABLE_UI=OFF \  -DCEF_ROOT_DIR=../../deps/cef_binary_macos_arm64 \  -DENABLE_BROWSER=ON \  -DSTREAMLUMO_HEADLESS=ON \  -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \  -DCMAKE_OSX_ARCHITECTURES=arm64 \  -DCMAKE_BUILD_TYPE=Release \  -G Ninja \cmake .. \# Configure with headless flagmkdir -p build_headless && cd build_headless# Create build directorycd /path/to/streamlumo/obs-studio```bash### Step 2: Configure OBS Build with Headless Flag```git apply ../streamlumo-engine/patches/obs-browser-headless.patchcd /path/to/streamlumo/obs-studio```bash### Step 1: Apply the Headless Patch## Build Instructions- CEF binary distribution for macOS ARM64 (already in `deps/cef_binary_macos_arm64`)- Ninja build system- CMake 3.24+- Xcode 14.3+ with Command Line Tools- macOS 13.0+ (Ventura or later)## Prerequisites3. Process CEF tasks independently of any GUI event loop2. Run `CefRunMessageLoop()` in its own dedicated thread1. Use `multi_threaded_message_loop = true` (implicit when external_message_pump is false)Rebuild `obs-browser` **without** `ENABLE_BROWSER_QT_LOOP`. This makes CEF:## SolutionIn headless mode (no Qt), CEF tasks are queued but never executed, causing browser source creation to hang indefinitely.3. Relies on Qt's event loop to call `CefDoMessageLoopWork()` periodically2. Sets `CefSettings.multi_threaded_message_loop = false`1. Sets `CefSettings.external_message_pump = true`The stock OBS Studio `obs-browser` plugin on macOS is compiled with `ENABLE_BROWSER_QT_LOOP`, which:## Problem BackgroundThis document explains how to rebuild the `obs-browser` plugin for headless operation, enabling browser sources in StreamLumo Engine without Qt dependencies.--- a/plugins/obs-browser/cmake/os-macos.cmake
++++ b/plugins/obs-browser/cmake/os-macos.cmake
+@@ -1,6 +1,20 @@
+-find_package(Qt6 REQUIRED Widgets)
++# StreamLumo Headless Mode Support
++# When STREAMLUMO_HEADLESS is ON, CEF uses its own message loop thread
++# instead of depending on Qt's event loop. This is required for headless
++# operation where Qt is not available.
+ 
+-target_compile_definitions(obs-browser PRIVATE ENABLE_BROWSER_SHARED_TEXTURE ENABLE_BROWSER_QT_LOOP)
++option(STREAMLUMO_HEADLESS "Build obs-browser for headless operation (no Qt dependency)" OFF)
++
++if(STREAMLUMO_HEADLESS)
++  message(STATUS "obs-browser: Building for HEADLESS mode (CEF runs own message loop)")
++  # In headless mode, CEF runs CefRunMessageLoop() in its own thread
++  # This avoids dependency on Qt event loop for message pumping
++  target_compile_definitions(obs-browser PRIVATE ENABLE_BROWSER_SHARED_TEXTURE)
++else()
++  find_package(Qt6 REQUIRED Widgets)
++  message(STATUS "obs-browser: Building for GUI mode (Qt event loop integration)")
++  target_compile_definitions(obs-browser PRIVATE ENABLE_BROWSER_SHARED_TEXTURE ENABLE_BROWSER_QT_LOOP)
++endif()
+ 
+ if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 14.0.3)
+   target_compile_options(obs-browser PRIVATE -Wno-error=unqualified-std-cast-call)
+@@ -8,8 +22,13 @@ if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 14.0.3)
+   target_compile_options(obs-browser PRIVATE -Wno-error=unqualified-std-cast-call)
+ endif()
+ 
+-target_link_libraries(obs-browser PRIVATE Qt::Widgets CEF::Wrapper "$<LINK_LIBRARY:FRAMEWORK,CoreFoundation.framework>"
+-                                          "$<LINK_LIBRARY:FRAMEWORK,AppKit.framework>")
++if(STREAMLUMO_HEADLESS)
++  target_link_libraries(obs-browser PRIVATE CEF::Wrapper "$<LINK_LIBRARY:FRAMEWORK,CoreFoundation.framework>"
++                                            "$<LINK_LIBRARY:FRAMEWORK,AppKit.framework>")
++else()
++  target_link_libraries(obs-browser PRIVATE Qt::Widgets CEF::Wrapper "$<LINK_LIBRARY:FRAMEWORK,CoreFoundation.framework>"
++                                            "$<LINK_LIBRARY:FRAMEWORK,AppKit.framework>")
++endif()
+ 
+ set(helper_basename browser-helper)
+ set(helper_output_name "OBS Helper")
+@@ -53,8 +72,12 @@ foreach(helper IN LISTS helper_suffixes)
+                "${CMAKE_CURRENT_SOURCE_DIR}/cmake/macos/entitlements-helper${helper_plist}.plist")
+ endforeach()
+ 
+-set_target_properties(
+-  obs-browser
+-  PROPERTIES AUTOMOC ON
+-             AUTOUIC ON
+-             AUTORCC ON)
++# Only enable Qt MOC/UIC/RCC when building with Qt
++if(NOT STREAMLUMO_HEADLESS)
++  set_target_properties(
++    obs-browser
++    PROPERTIES AUTOMOC ON
++               AUTOUIC ON
++               AUTORCC ON)
++endif()
