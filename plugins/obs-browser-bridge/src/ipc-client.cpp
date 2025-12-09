@@ -393,12 +393,19 @@ void IPCClient::handleMessage(const std::string &json)
     std::string type = findStringValue("type");
     
     if (type == "frameReady") {
+        // Only log periodically to avoid performance impact
+        static int frameCount = 0;
+        if (++frameCount % 300 == 1) {
+            blog(LOG_INFO, "[ipc-client] Received frameReady #%d", frameCount);
+        }
         // IMPORTANT: Helper sends "id" not "browserId"
         // Using "browserId" here would cause findStringValue to return empty string
         // and frames would fail to dispatch to the correct source
         std::string browserId = findStringValue("id");
         int width = findIntValue("width");
         int height = findIntValue("height");
+        
+        // Frame details logging removed for performance
         
         // Extract data field (base64)
         // The data can be very large (1920x1080x4 = ~8MB base64)

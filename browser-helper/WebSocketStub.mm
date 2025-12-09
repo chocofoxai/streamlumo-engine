@@ -1,6 +1,7 @@
 #import "WebSocketStub.h"
 #import "BrowserManager.h"
 
+#import <Cocoa/Cocoa.h>
 #import <dispatch/dispatch.h>
 #import <sys/socket.h>
 #import <netinet/in.h>
@@ -218,17 +219,19 @@
         }
         NSNumber *width = dict[@"width"] ?: @(1280);
         NSNumber *height = dict[@"height"] ?: @(720);
-        NSDictionary *state = @{ @"id": browserId, @"url": dict[@"url"] ?: @"", @"width": width, @"height": height };
+        NSNumber *fps = dict[@"fps"] ?: @(30);
+        NSDictionary *state = @{ @"id": browserId, @"url": dict[@"url"] ?: @"", @"width": width, @"height": height, @"fps": fps };
         @synchronized (self.browserStates) {
             self.browserStates[browserId] = state;
         }
-        NSLog(@"[browser-helper] initBrowser id=%@ url=%@ %dx%d", browserId, dict[@"url"], width.intValue, height.intValue);
+        NSLog(@"[browser-helper] initBrowser id=%@ url=%@ %dx%d @%dfps", browserId, dict[@"url"], width.intValue, height.intValue, fps.intValue);
         // CEF: Create off-screen browser
         BrowserManager::Instance().CreateBrowser(
             std::string([browserId UTF8String]),
             std::string([dict[@"url"] UTF8String] ?: ""),
             width.intValue,
-            height.intValue);
+            height.intValue,
+            fps.intValue);
         [self sendJSON:@{ @"type": @"browserReady", @"id": browserId, @"status": @"ok", @"v": @1 } toSocket:socketFD];
     } else if ([type isEqualToString:@"updateBrowser"]) {
         NSString *browserId = dict[@"id"];
@@ -249,7 +252,14 @@
             self.browserStates[browserId] = next;
         }
         NSLog(@"[browser-helper] updateBrowser id=%@ url=%@ width=%@ height=%@", browserId, dict[@"url"], dict[@"width"], dict[@"height"]);
-        // CEF: Resize browser
+        
+        // CEF: Navigate to new URL if provided
+        NSString *newUrl = dict[@"url"];
+        if (newUrl && newUrl.length > 0) {
+            BrowserManager::Instance().NavigateBrowser(std::string([browserId UTF8String]), std::string([newUrl UTF8String]));
+        }
+        
+        // CEF: Resize browser if dimensions provided
         NSNumber *w = dict[@"width"];
         NSNumber *h = dict[@"height"];
         if (w && h) {
@@ -269,6 +279,16 @@
         // CEF: Close browser
         BrowserManager::Instance().CloseBrowser(std::string([browserId UTF8String]));
         [self sendJSON:@{ @"type": @"browserDisposed", @"id": browserId, @"status": @"ok", @"v": @1 } toSocket:socketFD];
+    } else if ([type isEqualToString:@"shutdown"]) {
+        // Graceful shutdown command - engine sends this before terminating helper
+        NSLog(@"[browser-helper] received shutdown command, initiating graceful termination");
+        [self sendJSON:@{ @"type": @"shutdownAck", @"status": @"ok", @"v": @1 } toSocket:socketFD];
+        
+        // Schedule termination on main thread after response is sent
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSLog(@"[browser-helper] triggering NSApplication termination from shutdown command");
+            [[NSApplication sharedApplication] terminate:nil];
+        });
     } else {
         [self sendError:@"unsupported" socket:socketFD];
     }
@@ -313,18 +333,47 @@
     if (!source) {
         return;
     }
+    
+    // Get the file descriptor before cancelling
+    int clientFd = (int)dispatch_source_get_handle(source);
+    
+    // Gracefully shutdown the socket (send FIN) before cancelling
+    if (clientFd >= 0) {
+        shutdown(clientFd, SHUT_RDWR);
+    }
+    
     dispatch_source_cancel(source);
     [self.clientSources removeObject:source];
     if (self.activeConnections > 0) {
         self.activeConnections -= 1;
     }
     self.activeClientFd = -1;
+    
+    NSLog(@"[browser-helper] closed client connection fd=%d", clientFd);
 }
 
 - (void)sendFrameNotification:(NSString *)browserId width:(int)width height:(int)height buffer:(const void *)buffer {
     if (self.activeClientFd < 0) {
         return;
     }
+    
+    // Frame throttling - skip frames if we're backing up
+    static CFAbsoluteTime lastFrameTime = 0;
+    static int skipCount = 0;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    CFAbsoluteTime elapsed = now - lastFrameTime;
+    
+    // Skip frame if less than ~16ms since last frame (cap at ~60fps)
+    // This prevents frame backup when transport is slow
+    if (elapsed < 0.012 && lastFrameTime > 0) {
+        skipCount++;
+        if (skipCount % 60 == 0) {
+            NSLog(@"[browser-helper] Skipped %d frames (transport throttling)", skipCount);
+        }
+        return;
+    }
+    lastFrameTime = now;
+    
     size_t dataLen = (size_t)width * (size_t)height * 4;
     NSData *raw = [NSData dataWithBytes:buffer length:dataLen];
     NSString *b64 = [raw base64EncodedStringWithOptions:0];
@@ -345,19 +394,37 @@
         return;
     }
 
-    NSLog(@"[browser-helper] stopping TCP JSON-line server");
+    NSLog(@"[browser-helper] stopping TCP JSON-line server - closing %lu client connections", (unsigned long)self.clientSources.count);
 
-    for (dispatch_source_t source in self.clientSources) {
+    // First, gracefully close all client connections
+    NSSet<dispatch_source_t> *sources = [self.clientSources copy];
+    for (dispatch_source_t source in sources) {
+        int clientFd = (int)dispatch_source_get_handle(source);
+        if (clientFd >= 0) {
+            // Send FIN to client
+            shutdown(clientFd, SHUT_RDWR);
+        }
         dispatch_source_cancel(source);
     }
     [self.clientSources removeAllObjects];
+    self.activeConnections = 0;
+    self.activeClientFd = -1;
 
+    // Then close the listen socket
     if (self.acceptSource) {
         dispatch_source_cancel(self.acceptSource);
         self.acceptSource = nil;
     }
+    
+    // Explicitly close and shutdown listen socket if cancel handler didn't do it
+    if (self.listenFd >= 0) {
+        shutdown(self.listenFd, SHUT_RDWR);
+        close(self.listenFd);
+        self.listenFd = -1;
+    }
 
     self.running = NO;
+    NSLog(@"[browser-helper] TCP JSON-line server stopped");
 }
 
 - (BOOL)isRunning {

@@ -25,6 +25,8 @@ add_executable(streamlumo-browser-helper MACOSX_BUNDLE
     HelperApp.mm
     BrowserClient.mm
     BrowserManager.mm
+    BrowserShmWriter.mm
+    BrowserShmWriter.h
 )
 
 target_include_directories(streamlumo-browser-helper PRIVATE

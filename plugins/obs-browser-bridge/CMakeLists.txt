@@ -18,12 +18,15 @@ add_library(obs-browser-bridge MODULE
     src/ipc-client.hpp
     src/frame-decoder.cpp
     src/frame-decoder.hpp
+    src/BrowserShmReader.cpp
+    include/BrowserShmReader.h
 )
 
 # Link against parent project's libobs (uses LIBOBS_LIBRARY and LIBOBS_INCLUDE_DIR from parent)
 target_link_libraries(obs-browser-bridge PRIVATE ${LIBOBS_LIBRARY})
 target_include_directories(obs-browser-bridge PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${LIBOBS_INCLUDE_DIR}
     ${LIBOBS_INCLUDE_DIR}/..  # For obs-module.h etc
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../deps/obs-deps  # For simde
@@ -58,7 +61,13 @@ else()
 endif()
 
 # Install
-install(TARGETS obs-browser-bridge
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/obs-plugins
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}/obs-plugins
-)
+if(APPLE)
+    install(TARGETS obs-browser-bridge
+        LIBRARY DESTINATION "${CMAKE_INSTALL_PREFIX}/PlugIns/obs-plugins"
+    )
+else()
+    install(TARGETS obs-browser-bridge
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/obs-plugins
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}/obs-plugins
+    )
+endif()

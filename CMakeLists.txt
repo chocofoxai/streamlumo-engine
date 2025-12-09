@@ -39,6 +39,10 @@ if(NOT DEFINED OBS_BUILD_DIR)
     set(OBS_BUILD_DIR "${OBS_SOURCE_DIR}/build" CACHE PATH "Path to OBS Studio build")
 endif()
 
+# Convert to absolute paths for subdirectories
+get_filename_component(OBS_SOURCE_DIR "${OBS_SOURCE_DIR}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+get_filename_component(OBS_BUILD_DIR "${OBS_BUILD_DIR}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
 message(STATUS "OBS Source: ${OBS_SOURCE_DIR}")
 message(STATUS "OBS Build: ${OBS_BUILD_DIR}")
 
@@ -146,8 +150,19 @@ target_link_libraries(streamlumo-engine PRIVATE
     ${LIBOBS_LIBRARY}
 )
 
+# Check if CEF is available before enabling browser helper
 if(ENABLE_BROWSER_HELPER AND APPLE)
-    target_compile_definitions(streamlumo-engine PRIVATE STREAMLUMO_ENABLE_BROWSER_HELPER=1)
+    # Look for CEF framework in deps/
+    set(CEF_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../deps/cef_binary_macos_arm64")
+    
+    if(EXISTS "${CEF_ROOT_DIR}/Chromium Embedded Framework.framework" OR 
+       EXISTS "${CEF_ROOT_DIR}/include/cef_version.h")
+        message(STATUS "CEF found at ${CEF_ROOT_DIR} - enabling browser helper")
+        target_compile_definitions(streamlumo-engine PRIVATE STREAMLUMO_ENABLE_BROWSER_HELPER=1)
+    else()
+        message(WARNING "CEF not found at ${CEF_ROOT_DIR} - browser helper disabled")
+        message(WARNING "To enable browser helper, install CEF to deps/cef_binary_macos_arm64/")
+    endif()
 endif()
 
 # Link obs-frontend-api for headless frontend stubs
@@ -362,6 +377,20 @@ if(APPLE)
         )
     endif()
     
+    # Install browser helper (if enabled)
+    if(ENABLE_BROWSER_HELPER)
+        set(BROWSER_HELPER_APP "${CMAKE_CURRENT_BINARY_DIR}/browser-helper/streamlumo-browser-helper.app")
+        if(EXISTS "${BROWSER_HELPER_APP}")
+            message(STATUS "Installing browser helper")
+            install(DIRECTORY "${BROWSER_HELPER_APP}"
+                DESTINATION "${CMAKE_INSTALL_PREFIX}/Helpers"
+                USE_SOURCE_PERMISSIONS
+            )
+        else()
+            message(WARNING "  ⚠ Browser helper not found at ${BROWSER_HELPER_APP}")
+        endif()
+    endif()
+    
 elseif(WIN32)
     # Windows: Standard installation
     install(TARGETS streamlumo-engine
@@ -407,11 +436,12 @@ if(ENABLE_BROWSER_HELPER AND APPLE)
     add_subdirectory(browser-helper)
     add_dependencies(streamlumo-engine streamlumo-browser-helper)
     # Copy helper bundle next to the engine binary (../Helpers/) so the launcher can find it.
+    # Use rsync instead of cmake copy_directory to handle .app bundles with extended attributes
     add_custom_command(TARGET streamlumo-engine POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:streamlumo-engine>/../Helpers"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "$<TARGET_FILE_DIR:streamlumo-browser-helper>/../.." "$<TARGET_FILE_DIR:streamlumo-engine>/../Helpers/streamlumo-browser-helper.app"
+        COMMAND rsync -a --delete "${CMAKE_CURRENT_BINARY_DIR}/browser-helper/streamlumo-browser-helper.app" "$<TARGET_FILE_DIR:streamlumo-engine>/../Helpers/"
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:streamlumo-engine>/Helpers"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "$<TARGET_FILE_DIR:streamlumo-browser-helper>/../.." "$<TARGET_FILE_DIR:streamlumo-engine>/Helpers/streamlumo-browser-helper.app"
+        COMMAND rsync -a --delete "${CMAKE_CURRENT_BINARY_DIR}/browser-helper/streamlumo-browser-helper.app" "$<TARGET_FILE_DIR:streamlumo-engine>/Helpers/"
         COMMENT "Copying browser helper bundle next to engine"
     )
     

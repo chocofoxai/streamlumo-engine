@@ -12,6 +12,12 @@
 #include <atomic>
 #include <vector>
 #include <cstdint>
+#include <memory>
+
+// Forward declaration
+namespace browser_bridge {
+    class BrowserShmReader;
+}
 
 namespace browser_bridge {
 
@@ -61,6 +67,7 @@ private:
     void disposeBrowser();
     void receiveFrame(const uint8_t *data, size_t size, int width, int height);
     void updateTexture();
+    void updateTextureFromShm();
     void onConnectionEstablished();
     void onConnectionLost();
 
@@ -80,12 +87,15 @@ private:
     bool m_restartOnActive = false;
     int m_fps = 30;
     
-    // Frame buffer (double-buffered)
+    // Frame buffer (double-buffered for smooth updates)
     std::mutex m_frameMutex;
-    std::vector<uint8_t> m_frameData;
+    std::vector<uint8_t> m_frameData[2];  // Double buffer
+    int m_writeBuffer = 0;  // Current write buffer index
+    int m_readBuffer = 0;   // Current read buffer index  
     int m_frameWidth = 0;
     int m_frameHeight = 0;
     std::atomic<bool> m_frameReady{false};
+    std::atomic<bool> m_newFrameAvailable{false};
     
     // OBS texture
     gs_texture_t *m_texture = nullptr;
@@ -97,6 +107,11 @@ private:
     std::atomic<bool> m_visible{true};
     std::atomic<bool> m_browserInitialized{false};
     std::atomic<bool> m_pendingInit{false};
+    
+    // Shared memory reader (zero-copy frame transport)
+    std::unique_ptr<BrowserShmReader> m_shmReader;
+    std::atomic<bool> m_useShmTransport{true};  // Enable SHM by default
+    std::vector<uint8_t> m_shmFrameBuffer;      // Local buffer for SHM reads
 };
 
 } // namespace browser_bridge

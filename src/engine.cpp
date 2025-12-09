@@ -17,6 +17,7 @@
 #include <chrono>
 #include <filesystem>
 #include <cstdio>
+#include <set>
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -113,24 +114,32 @@ bool Engine::initialize() {
         return false;
     }
     
+    log_info("DEBUG: loadModules() returning");
     if (!loadModules()) {
         log_error("Failed to load OBS modules");
         return false;
     }
+    log_info("DEBUG: loadModules() completed successfully");
     
+    log_info("DEBUG: About to call setupDefaultScene()");
     if (!setupDefaultScene()) {
         log_warn("Failed to setup default scene (non-fatal)");
     }
+    log_info("DEBUG: setupDefaultScene() completed");
     
+    log_info("DEBUG: About to call setupDefaultTransition()");
     if (!setupDefaultTransition()) {
         log_warn("Failed to setup default transition (non-fatal)");
     }
+    log_info("DEBUG: setupDefaultTransition() completed");
     
     // Signal that OBS has finished loading - this enables obs-websocket to accept requests
+    log_info("DEBUG: About to signal finished loading");
     HeadlessFrontend* frontend = HeadlessFrontend::instance();
     if (frontend) {
         frontend->signalFinishedLoading();
     }
+    log_info("DEBUG: Finished loading signal sent");
     
     // If test browser URL is specified, create a test browser source
     if (m_config.hasTestBrowserUrl()) {
@@ -186,28 +195,56 @@ bool Engine::initOBS() {
         obs_add_module_path(devBinPath.c_str(), devDataPath.c_str());
     }
     
-    // Also add path for directly loading .so plugins (like obs-browser-bridge)
-    // These are simple .so files without bundle structure
+    // Add path for directly loading .so plugins (like obs-browser-bridge)
+    // These are simple .so files without .plugin bundle structure
+    // 
+    // IMPORTANT: On macOS with case-insensitive filesystem (default APFS),
+    // "PlugIns" and "plugins" resolve to the SAME directory.
+    // We must use canonical paths and deduplicate to avoid loading modules multiple times.
 #ifdef __APPLE__
     char pathBuf[PATH_MAX];
     uint32_t size = sizeof(pathBuf);
     if (_NSGetExecutablePath(pathBuf, &size) == 0) {
         fs::path engineDir = fs::path(pathBuf).parent_path();
-        fs::path plugInsDir = engineDir / ".." / "PlugIns";
-        if (fs::exists(plugInsDir)) {
-            std::string plugInsBin = plugInsDir.string() + "/";
-            std::string plugInsData = plugInsDir.string() + "/";
-            log_info("Adding PlugIns path for .so modules: %s", plugInsBin.c_str());
-            obs_add_module_path(plugInsBin.c_str(), plugInsData.c_str());
-        }
-        // Also check PlugIns next to engine for dev builds
-        fs::path devPlugIns = engineDir / "PlugIns";
-        if (fs::exists(devPlugIns)) {
-            std::string hpBin = devPlugIns.string() + "/";
-            std::string hpData = devPlugIns.string() + "/";
-            log_info("Adding dev PlugIns path: %s", hpBin.c_str());
-            obs_add_module_path(hpBin.c_str(), hpData.c_str());
-        }
+        
+        // Track added paths to avoid duplicates (case-insensitive comparison on macOS)
+        std::set<std::string> addedPaths;
+        
+        auto addModulePathOnce = [&](const fs::path& path, const std::string& description) {
+            if (!fs::exists(path)) {
+                return;
+            }
+            
+            // Get canonical path (resolves symlinks, normalizes case)
+            std::error_code ec;
+            fs::path canonicalPath = fs::canonical(path, ec);
+            if (ec) {
+                // If canonical fails, use absolute path
+                canonicalPath = fs::absolute(path);
+            }
+            
+            std::string canonicalStr = canonicalPath.string();
+            
+            // Check if we've already added this path
+            if (addedPaths.find(canonicalStr) != addedPaths.end()) {
+                log_info("Skipping duplicate path: %s (already added as %s)", 
+                         path.string().c_str(), canonicalStr.c_str());
+                return;
+            }
+            
+            std::string bin = canonicalPath.string() + "/";
+            std::string data = canonicalPath.string() + "/";
+            log_info("Adding %s: %s", description.c_str(), bin.c_str());
+            obs_add_module_path(bin.c_str(), data.c_str());
+            addedPaths.insert(canonicalStr);
+        };
+        
+        // For production bundle: ../PlugIns (relative to MacOS/ directory)
+        addModulePathOnce(engineDir / ".." / "PlugIns", "PlugIns path for .so modules");
+        
+        // For development: PlugIns next to engine binary
+        // Note: On case-insensitive filesystem, this might be same as "plugins" 
+        addModulePathOnce(engineDir / "PlugIns", "dev PlugIns path");
     }
 #endif
     
@@ -315,6 +352,15 @@ static const char* headless_skip_modules[] = {
     "decklink-captions",   // Requires Decklink hardware
     "decklink",            // Requires Decklink hardware
     "obs-vst",             // VST plugins typically need GUI
+    // NOTE: obs-browser and obs-browser-page are now enabled when CEF is available
+    // The browser helper provides the CEF runtime for browser sources
+    // CRITICAL: mac-videotoolbox MUST be disabled in headless mode.
+    // The module's obs_module_post_load() uses dispatch_group_wait(DISPATCH_TIME_FOREVER)
+    // to wait for background VideoToolbox encoder enumeration via VTCopyVideoEncoderList().
+    // In a headless environment without proper graphics context, this causes a deadlock
+    // or crash, preventing the engine from completing initialization.
+    // See: obs-studio/plugins/mac-videotoolbox/encoder.c:1437-1528
+    "mac-videotoolbox",
     nullptr
 };
 
@@ -350,11 +396,42 @@ bool Engine::loadModules() {
     // Load all modules from the search paths
     obs_load_all_modules();
     
+    // Explicitly load obs-browser-bridge plugin (it's a .so file, not a .plugin bundle)
+#ifdef __APPLE__
+    char pathBuf[PATH_MAX];
+    uint32_t size = sizeof(pathBuf);
+    if (_NSGetExecutablePath(pathBuf, &size) == 0) {
+        fs::path engineDir = fs::path(pathBuf).parent_path();
+        fs::path bridgePlugin = engineDir / ".." / "PlugIns" / "obs-plugins" / "obs-browser-bridge.so";
+        
+        if (fs::exists(bridgePlugin)) {
+            log_info("Explicitly loading obs-browser-bridge plugin: %s", bridgePlugin.string().c_str());
+            obs_module_t* module = nullptr;
+            int result = obs_open_module(&module, bridgePlugin.string().c_str(), bridgePlugin.parent_path().string().c_str());
+            if (result != MODULE_SUCCESS) {
+                log_warn("Failed to load obs-browser-bridge: error code %d", result);
+            } else {
+                log_info("Successfully opened obs-browser-bridge module");
+                // Initialize the module
+                if (!obs_init_module(module)) {
+                    log_warn("Failed to initialize obs-browser-bridge");
+                } else {
+                    log_info("Successfully initialized obs-browser-bridge");
+                }
+            }
+        } else {
+            log_warn("obs-browser-bridge plugin not found at: %s", bridgePlugin.string().c_str());
+        }
+    }
+#endif
+    
     // Log what was loaded
     obs_log_loaded_modules();
     
-    // Post-load initialization
+    // Post-load initialization (this calls obs_module_post_load() on all modules)
+    log_info("DEBUG: About to call obs_post_load_modules()");
     obs_post_load_modules();
+    log_info("DEBUG: obs_post_load_modules() completed");
     
     log_info("Modules loaded successfully");
     return true;
@@ -422,14 +499,22 @@ bool Engine::setupDefaultTransition() {
 
 int Engine::run(std::atomic<bool>& running) {
     log_info("Entering main event loop...");
+#ifdef STREAMLUMO_ENABLE_BROWSER_HELPER
     m_lastHelperPing = std::chrono::steady_clock::now();
+#endif
+    
+    // CRITICAL: In headless mode, sources don't get video_tick() called unless we actively render
+    // or have an output running. Browser sources need video_tick to initialize and receive frames.
+    // We call obs_render_main_texture() manually to drive the rendering pipeline.
+    auto lastRenderTick = std::chrono::steady_clock::now();
 
     while (running && !m_shutdownRequested) {
         // The obs-websocket plugin handles its own event loop for WebSocket connections
         // We just need to keep the process alive and process any pending events
+        
+        auto now = std::chrono::steady_clock::now();
 
 #ifdef STREAMLUMO_ENABLE_BROWSER_HELPER
-        auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastHelperPing).count();
         if (elapsed >= 2000) { // ping every 2s
             bool healthy = false;
@@ -455,7 +540,19 @@ int Engine::run(std::atomic<bool>& running) {
         }
 #endif
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // Tick OBS rendering pipeline at ~30 FPS to drive source video_tick callbacks
+        // This is essential for browser sources and other time-based sources to function
+        auto renderElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRenderTick).count();
+        if (renderElapsed >= 33) { // ~30 FPS
+            // obs_render_main_texture() calls video_tick on all sources in the scene
+            // Note: This requires graphics context, so we wrap in obs_enter_graphics/obs_leave_graphics
+            obs_enter_graphics();
+            obs_render_main_texture();
+            obs_leave_graphics();
+            lastRenderTick = now;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Reduced from 100ms for smoother ticking
     }
     
     log_info("Exiting main event loop");
@@ -495,9 +592,15 @@ void Engine::shutdown() {
     
 #ifdef STREAMLUMO_ENABLE_BROWSER_HELPER
     if (m_browserHelperClient) {
+        // First, request graceful shutdown via IPC
+        m_browserHelperClient->sendShutdown();
+        // Give it a moment to process the shutdown command
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // Then close our client connection
         m_browserHelperClient->stop();
         m_browserHelperClient.reset();
     }
+    // Finally, stop the helper process (with timeout for graceful exit)
     m_browserHelper.stop();
 #endif
     m_initialized = false;

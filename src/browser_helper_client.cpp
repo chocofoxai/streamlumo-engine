@@ -91,8 +91,11 @@ bool BrowserHelperClient::start(uint16_t port, const std::string &token)
 void BrowserHelperClient::stop()
 {
     if (m_fd >= 0) {
+        // Gracefully close socket - send FIN before closing
+        shutdown(m_fd, SHUT_RDWR);
         close(m_fd);
         m_fd = -1;
+        log_info("[helper] disconnected from browser helper");
     }
 }
 
@@ -200,6 +203,32 @@ bool BrowserHelperClient::ping()
     return true;
 }
 
+bool BrowserHelperClient::sendShutdown()
+{
+    if (m_fd < 0) {
+        return false;
+    }
+    log_info("[helper] sending shutdown command to browser helper");
+    std::string shutdown = "{\"type\":\"shutdown\",\"client\":\"streamlumo-engine\"";
+    if (!m_token.empty()) {
+        shutdown += ",\"token\":\"" + m_token + "\"";
+    }
+    shutdown += "}\n";
+    if (!sendLine(shutdown)) {
+        return false;
+    }
+
+    // Wait for acknowledgment
+    std::string line;
+    if (readLine(line, 1000)) {
+        if (line.find("shutdownAck") != std::string::npos) {
+            log_info("[helper] received shutdown acknowledgment");
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace streamlumo
 
 #else
@@ -228,6 +257,11 @@ bool BrowserHelperClient::sendLine(const std::string &)
 }
 
 bool BrowserHelperClient::readLine(std::string &, int)
+{
+    return false;
+}
+
+bool BrowserHelperClient::sendShutdown()
 {
     return false;
 }

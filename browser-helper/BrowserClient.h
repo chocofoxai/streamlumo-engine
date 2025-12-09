@@ -4,11 +4,14 @@
 #include "include/cef_client.h"
 #include "include/cef_life_span_handler.h"
 #include "include/cef_render_handler.h"
+#include "include/cef_load_handler.h"
+#include "BrowserShmWriter.h"
 
 #include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
+#include <memory>
 
 // Callback invoked when a frame is painted (BGRA buffer).
 using FrameCallback = std::function<void(const std::string& browserId,
@@ -18,7 +21,8 @@ using FrameCallback = std::function<void(const std::string& browserId,
 
 class BrowserClient : public CefClient,
                       public CefLifeSpanHandler,
-                      public CefRenderHandler {
+                      public CefRenderHandler,
+                      public CefLoadHandler {
 public:
     explicit BrowserClient(const std::string& browserId,
                            int width,
@@ -28,6 +32,7 @@ public:
     // CefClient
     CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
     CefRefPtr<CefRenderHandler> GetRenderHandler() override { return this; }
+    CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
 
     // CefLifeSpanHandler
     void OnAfterCreated(CefRefPtr<CefBrowser> browser) override;
@@ -42,6 +47,11 @@ public:
                  const void* buffer,
                  int width,
                  int height) override;
+    
+    // CefLoadHandler
+    void OnLoadEnd(CefRefPtr<CefBrowser> browser,
+                   CefRefPtr<CefFrame> frame,
+                   int httpStatusCode) override;
 
     // Accessors
     void SetSize(int w, int h);
@@ -55,6 +65,10 @@ private:
     FrameCallback onFrame_;
     CefRefPtr<CefBrowser> browser_;
     mutable std::mutex mutex_;
+    
+    // Shared memory writer for zero-copy frame transport
+    std::unique_ptr<browser_bridge::BrowserShmWriter> shmWriter_;
+    bool useShmTransport_ = true;
 
     IMPLEMENT_REFCOUNTING(BrowserClient);
     DISALLOW_COPY_AND_ASSIGN(BrowserClient);

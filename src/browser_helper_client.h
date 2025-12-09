@@ -21,6 +21,9 @@ public:
     void stop();
     bool isConnected() const { return m_fd >= 0; }
     bool ping();
+    
+    // Request graceful shutdown of the browser helper
+    bool sendShutdown();
 
 private:
     bool connectSocket(uint16_t port);

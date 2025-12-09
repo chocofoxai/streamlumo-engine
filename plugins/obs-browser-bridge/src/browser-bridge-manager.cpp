@@ -292,13 +292,24 @@ bool BrowserBridgeManager::initBrowser(const std::string &browserId,
 {
     // Ensure initialized on first browser creation
     if (!ensureInitialized()) {
+        blog(LOG_ERROR, "[browser-bridge] ensureInitialized() failed");
         return false;
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    if (!m_running.load() || !m_ipcClient || !m_ipcClient->isConnected()) {
-        blog(LOG_WARNING, "[browser-bridge] Cannot init browser - not connected");
+    if (!m_running.load()) {
+        blog(LOG_ERROR, "[browser-bridge] Cannot init browser - manager not running");
+        return false;
+    }
+    
+    if (!m_ipcClient) {
+        blog(LOG_ERROR, "[browser-bridge] Cannot init browser - no IPC client");
+        return false;
+    }
+    
+    if (!m_ipcClient->isConnected()) {
+        blog(LOG_ERROR, "[browser-bridge] Cannot init browser - IPC not connected");
         return false;
     }
 
@@ -314,13 +325,15 @@ bool BrowserBridgeManager::initBrowser(const std::string &browserId,
     }
     ss << "}";
 
+    blog(LOG_INFO, "[browser-bridge] Sending initBrowser: %s", ss.str().c_str());
+
     if (!m_ipcClient->sendLine(ss.str())) {
         blog(LOG_ERROR, "[browser-bridge] Failed to send initBrowser for %s",
              browserId.c_str());
         return false;
     }
 
-    blog(LOG_INFO, "[browser-bridge] Initialized browser %s (%dx%d @%dfps) url=%s",
+    blog(LOG_INFO, "[browser-bridge] Successfully sent initBrowser for %s (%dx%d @%dfps) url=%s",
          browserId.c_str(), width, height, fps, url.c_str());
     return true;
 }
@@ -344,6 +357,39 @@ void BrowserBridgeManager::disposeBrowser(const std::string &browserId)
     blog(LOG_INFO, "[browser-bridge] Disposed browser %s", browserId.c_str());
 }
 
+bool BrowserBridgeManager::updateBrowser(const std::string &browserId,
+                                          const std::string &url,
+                                          int width, int height)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    if (!m_running.load() || !m_ipcClient || !m_ipcClient->isConnected()) {
+        blog(LOG_ERROR, "[browser-bridge] Cannot update browser - not connected");
+        return false;
+    }
+
+    std::ostringstream ss;
+    ss << "{\"type\":\"updateBrowser\",\"id\":\"" << browserId << "\"";
+    if (!url.empty()) {
+        ss << ",\"url\":\"" << url << "\"";
+    }
+    ss << ",\"width\":" << width << ",\"height\":" << height;
+    if (!m_authToken.empty()) {
+        ss << ",\"token\":\"" << m_authToken << "\"";
+    }
+    ss << "}";
+
+    blog(LOG_INFO, "[browser-bridge] Sending updateBrowser: %s", ss.str().c_str());
+    if (!m_ipcClient->sendLine(ss.str())) {
+        blog(LOG_ERROR, "[browser-bridge] Failed to send updateBrowser for %s", browserId.c_str());
+        return false;
+    }
+
+    blog(LOG_INFO, "[browser-bridge] Successfully sent updateBrowser for %s url=%s",
+         browserId.c_str(), url.c_str());
+    return true;
+}
+
 bool BrowserBridgeManager::isHelperRunning() const
 {
 #ifdef _WIN32
@@ -357,12 +403,21 @@ void BrowserBridgeManager::dispatchFrame(const std::string &browserId,
                                           const uint8_t *data, size_t size,
                                           int width, int height)
 {
+    // Only log periodically to avoid performance impact
+    static int dispatchCount = 0;
+    if (++dispatchCount % 300 == 1) {
+        blog(LOG_INFO, "[browser-bridge] Dispatching frame #%d for %s (%dx%d)",
+             dispatchCount, browserId.c_str(), width, height);
+    }
+    
     BrowserBridgeSource *source = nullptr;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         auto it = m_sources.find(browserId);
         if (it != m_sources.end()) {
             source = it->second;
+        } else {
+            blog(LOG_WARNING, "[browser-bridge] No source found for browser %s", browserId.c_str());
         }
     }
 

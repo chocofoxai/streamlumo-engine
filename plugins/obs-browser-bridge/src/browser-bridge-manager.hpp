@@ -84,6 +84,8 @@ public:
     // Browser instance management (called by sources)
     bool initBrowser(const std::string &browserId, const std::string &url,
                      int width, int height, int fps);
+    bool updateBrowser(const std::string &browserId, const std::string &url,
+                       int width, int height);
     void disposeBrowser(const std::string &browserId);
 
     // Check if helper is running

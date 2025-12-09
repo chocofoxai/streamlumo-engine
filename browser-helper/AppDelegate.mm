@@ -6,6 +6,7 @@
 // Store argc/argv for CEF init since we can only access them reliably from main().
 static int s_argc = 0;
 static char** s_argv = nullptr;
+static BOOL s_isShuttingDown = NO;
 
 extern "C" void SetMainArgs(int argc, char** argv) {
     s_argc = argc;
@@ -69,13 +70,60 @@ extern "C" void SetMainArgs(int argc, char** argv) {
     });
 
     [self.wsStub start];
+    
+        // Start a timer to pump the CEF message loop at ~60 FPS like OBS
+        // (CEF will request paints when content changes)
+        self.renderTimer = [NSTimer scheduledTimerWithTimeInterval:1.0/60.0
+                                                        target:self
+                                                      selector:@selector(renderTick)
+                                                      userInfo:nil
+                                                       repeats:YES];
+    // Ensure timer fires even during modal loops
+    [[NSRunLoop currentRunLoop] addTimer:self.renderTimer forMode:NSRunLoopCommonModes];
+    NSLog(@"[browser-helper] Started render timer at 30 FPS");
+}
+
+- (void)renderTick {
+    // Don't process messages if we're shutting down
+    if (s_isShuttingDown) {
+        return;
+    }
+    BrowserManager::Instance().DoMessageLoopWork();
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
     (void)notification;
-    [self.wsStub stop];
-    self.wsStub = nil;
+    NSLog(@"[browser-helper] applicationWillTerminate - starting graceful shutdown");
+    
+    // Prevent re-entry
+    if (s_isShuttingDown) {
+        NSLog(@"[browser-helper] already shutting down, skipping");
+        return;
+    }
+    s_isShuttingDown = YES;
+    
+    // 1. Stop the render timer first to prevent CEF work during shutdown
+    if (self.renderTimer) {
+        NSLog(@"[browser-helper] invalidating render timer");
+        [self.renderTimer invalidate];
+        self.renderTimer = nil;
+    }
+    
+    // 2. Stop WebSocket server - this closes all client connections
+    if (self.wsStub) {
+        NSLog(@"[browser-helper] stopping WebSocket stub");
+        [self.wsStub stop];
+        self.wsStub = nil;
+    }
+    
+    // 3. Allow a brief moment for socket close to propagate
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    
+    // 4. Shutdown CEF - this must be last and will terminate GPU subprocess
+    NSLog(@"[browser-helper] shutting down CEF");
     BrowserManager::Instance().ShutdownCef();
+    
+    NSLog(@"[browser-helper] graceful shutdown complete");
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {

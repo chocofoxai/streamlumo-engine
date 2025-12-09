@@ -32,6 +32,11 @@ Makefile
 # Dependencies (downloaded, not tracked)
 deps/
 
+# CEF/Chromium Embedded Framework binaries (large, should be built locally)
+Helpers/
+**/Chromium Embedded Framework.framework/
+*.app/Contents/Frameworks/Chromium Embedded Framework.framework/
+
 # macOS
 .DS_Store
 *.dSYM/

@@ -51,10 +51,34 @@ void BrowserHelperLauncher::stop()
 {
 #ifdef __APPLE__
     if (m_childPid > 0) {
-        int status = 0;
+        // First send SIGTERM for graceful shutdown
+        log_info("[helper] sending SIGTERM to browser helper pid=%d", m_childPid);
         kill(m_childPid, SIGTERM);
+        
+        // Wait up to 3 seconds for graceful shutdown
+        int status = 0;
+        for (int i = 0; i < 30; ++i) {
+            int result = waitpid(m_childPid, &status, WNOHANG);
+            if (result > 0) {
+                // Process exited
+                log_info("[helper] browser helper exited gracefully pid=%d status=%d", m_childPid, WEXITSTATUS(status));
+                m_childPid = -1;
+                return;
+            } else if (result < 0) {
+                // Error or process doesn't exist
+                log_info("[helper] waitpid returned error, assuming process already exited");
+                m_childPid = -1;
+                return;
+            }
+            // Still running, wait a bit
+            usleep(100000); // 100ms
+        }
+        
+        // Process didn't exit gracefully, force kill
+        log_warn("[helper] browser helper did not exit gracefully, sending SIGKILL");
+        kill(m_childPid, SIGKILL);
         waitpid(m_childPid, &status, 0);
-        log_info("[helper] stopped browser helper pid=%d status=%d", m_childPid, status);
+        log_info("[helper] browser helper force killed pid=%d", m_childPid);
         m_childPid = -1;
     }
 #endif
